@@ -2,7 +2,6 @@ import {
   listenMainWorldBlobs,
   resolveAudioBlobForMessage,
   setPendingMessageId,
-  silentPrimeBubble,
   getBlobForMessage,
 } from './audio';
 import { blobToBase64 } from '../stt/audio-decode';
@@ -14,7 +13,7 @@ import {
   queryAll,
   queryFirst,
 } from './selectors';
-import { ensureUi, injectStyles, renderUi, type UiState } from './ui';
+import { ensureUi, injectStyles, renderUi, hasUi, type UiState } from './ui';
 import { getConfig, onConfigChange, type ExtensionConfig } from '../shared/storage';
 import type { JobPriority, RuntimeEvent } from '../shared/messages';
 
@@ -92,7 +91,7 @@ let obtainChain: Promise<unknown> = Promise.resolve();
 async function obtainBlobForMessage(
   messageId: string,
   bubble: Element,
-  opts: { allowPlay: boolean },
+  opts: { claimUnclaimed: boolean },
 ): Promise<Blob | null> {
   const run = async (): Promise<Blob | null> => {
     const existing = getBlobForMessage(messageId);
@@ -100,24 +99,13 @@ async function obtainBlobForMessage(
 
     setPendingMessageId(messageId);
 
-    // Silent path first: wait for createObjectURL / network hooks / existing blob:
-    let blob = await resolveAudioBlobForMessage(messageId, findAudioElement(bubble), {
-      retries: opts.allowPlay ? 4 : 6,
+    // Never click WhatsApp play — mute+click still leaks audible playback.
+    // Wait for createObjectURL / network hooks / existing <audio> src only.
+    return resolveAudioBlobForMessage(messageId, findAudioElement(bubble), {
+      retries: opts.claimUnclaimed ? 6 : 8,
       delayMs: 250,
-      claimUnclaimed: !opts.allowPlay,
+      claimUnclaimed: opts.claimUnclaimed,
     });
-    if (blob) return blob;
-
-    if (!opts.allowPlay) return null;
-
-    // Manual fallback: prime media muted (no audible playback)
-    await silentPrimeBubble(bubble);
-    blob = await resolveAudioBlobForMessage(messageId, findAudioElement(bubble), {
-      retries: 12,
-      delayMs: 350,
-      claimUnclaimed: false,
-    });
-    return blob;
   };
 
   const next = obtainChain.then(run, run);
@@ -132,7 +120,6 @@ async function enqueue(
   messageId: string,
   bubble: Element,
   priority: JobPriority,
-  opts?: { allowPlay?: boolean },
 ): Promise<void> {
   if (!config || config.modelStatus !== 'ready') {
     setState(messageId, { kind: 'setup' });
@@ -140,17 +127,19 @@ async function enqueue(
     return;
   }
 
-  const allowPlay = opts?.allowPlay ?? priority === 'manual';
+  // Auto may claim recently captured unclaimed blobs; manual stays message-scoped
+  // (pending id + audio src) so we never steal another message's audio.
+  const claimUnclaimed = priority === 'auto';
 
   setState(messageId, { kind: 'queued' });
   refreshMessageUi(messageId);
 
-  const blob = await obtainBlobForMessage(messageId, bubble, { allowPlay });
+  const blob = await obtainBlobForMessage(messageId, bubble, { claimUnclaimed });
   if (!blob) {
     missCount += 1;
-    console.warn('[wt] audio blob missing for message', messageId, { missCount, allowPlay });
-    // Auto without play: leave idle (user can click Transcrever). Manual: show hint.
-    if (priority === 'auto' && !allowPlay) {
+    console.warn('[wt] audio blob missing for message', messageId, { missCount, priority });
+    // Auto: leave idle (user can click Transcrever). Manual: honest hint to play once.
+    if (priority === 'auto') {
       setState(messageId, { kind: 'idle' });
       seenForAuto.delete(messageId);
     } else {
@@ -182,8 +171,8 @@ async function enqueue(
 
 function handlersFor(messageId: string, bubble: Element) {
   return {
-    onTranscribe: () => void enqueue(messageId, bubble, 'manual', { allowPlay: true }),
-    onRetry: () => void enqueue(messageId, bubble, 'manual', { allowPlay: true }),
+    onTranscribe: () => void enqueue(messageId, bubble, 'manual'),
+    onRetry: () => void enqueue(messageId, bubble, 'manual'),
     onCancel: () => {
       void chrome.runtime.sendMessage({ type: 'CANCEL_JOB', messageId });
       setState(messageId, { kind: 'idle' });
@@ -191,7 +180,7 @@ function handlersFor(messageId: string, bubble: Element) {
     },
     onRetranscribe: () => {
       void chrome.runtime.sendMessage({ type: 'DELETE_TRANSCRIPT', messageId }).then(() => {
-        void enqueue(messageId, bubble, 'manual', { allowPlay: true });
+        void enqueue(messageId, bubble, 'manual');
       });
     },
     onCopy: () => {
@@ -214,6 +203,8 @@ function refreshMessageUi(messageId: string): void {
   const state = states.get(messageId);
   if (!state) return;
   const root = ensureUi(bubble, messageId);
+  // Force update after job status changes
+  root.removeAttribute('data-wt-sig');
   renderUi(root, state, handlersFor(messageId, bubble));
 }
 
@@ -225,10 +216,9 @@ async function attachToBubble(
   const messageId = findMessageId(bubble);
   if (!messageId) return;
 
-  const uiMissing = !bubble.querySelector(`[data-wt-root="${CSS.escape(messageId)}"]`);
+  const uiMissing = !hasUi(bubble, messageId);
   let state = states.get(messageId);
 
-  // WA virtualizes/rebuilds bubbles when switching chats — re-read IndexedDB and re-inject UI
   const shouldHydrate =
     opts?.forceHydrate ||
     !state ||
@@ -292,7 +282,7 @@ async function autoTranscribeLatest(): Promise<void> {
     await attachToBubble(el, { forceHydrate: true });
     if (states.get(id)?.kind !== 'idle') continue;
     seenForAuto.add(id);
-    await enqueue(id, el, 'auto', { allowPlay: false });
+    await enqueue(id, el, 'auto');
   }
 }
 
@@ -325,19 +315,32 @@ function observe(): void {
   let lastChatKey = getChatKey();
   activeChatKey = lastChatKey;
 
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver((mutations) => {
+    // Ignore mutations caused by our own UI (hover/focus) to prevent rescan flicker
+    const relevant = mutations.some((m) => {
+      const t = m.target;
+      if (t instanceof Node) {
+        const el = t instanceof Element ? t : t.parentElement;
+        if (el?.closest?.('.wt-root')) return false;
+      }
+      for (const n of m.addedNodes) {
+        if (n instanceof Element && n.closest('.wt-root')) return false;
+      }
+      return true;
+    });
+    if (!relevant) return;
+
     const key = getChatKey();
     const chatChanged = key !== lastChatKey;
     if (chatChanged) {
       lastChatKey = key;
       activeChatKey = key;
       seenForAuto.clear();
-      // Wait for the conversation pane to paint, then re-hydrate from IndexedDB
       scheduleUiScan(500, true);
       scheduleAutoLatest();
       return;
     }
-    scheduleUiScan(200, false);
+    scheduleUiScan(250, false);
   });
 
   observer.observe(document.body, { childList: true, subtree: true });

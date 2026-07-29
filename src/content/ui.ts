@@ -7,7 +7,23 @@ export type UiState =
   | { kind: 'done'; text: string }
   | { kind: 'error'; message: string };
 
+export type UiHandlers = {
+  onTranscribe: () => void;
+  onRetry: () => void;
+  onCancel: () => void;
+  onRetranscribe: () => void;
+  onCopy: () => void;
+  onOpenSetup: () => void;
+};
+
 const ROOT_ATTR = 'data-wt-root';
+const SIG_ATTR = 'data-wt-sig';
+
+export function stateSignature(state: UiState): string {
+  if (state.kind === 'done') return `done:${state.text}`;
+  if (state.kind === 'error') return `error:${state.message}`;
+  return state.kind;
+}
 
 export function ensureUi(bubble: Element, messageId: string): HTMLElement {
   let root = bubble.querySelector(`[${ROOT_ATTR}="${CSS.escape(messageId)}"]`) as HTMLElement | null;
@@ -20,20 +36,23 @@ export function ensureUi(bubble: Element, messageId: string): HTMLElement {
   return root;
 }
 
-export function renderUi(
-  root: HTMLElement,
-  state: UiState,
-  handlers: {
-    onTranscribe: () => void;
-    onRetry: () => void;
-    onCancel: () => void;
-    onRetranscribe: () => void;
-    onCopy: () => void;
-    onOpenSetup: () => void;
-  },
-): void {
+export function hasUi(bubble: Element, messageId: string): boolean {
+  return Boolean(bubble.querySelector(`[${ROOT_ATTR}="${CSS.escape(messageId)}"]`));
+}
+
+/**
+ * Renders only when the visual state actually changed — avoids flicker from
+ * WhatsApp MutationObserver rescans while hovering.
+ */
+export function renderUi(root: HTMLElement, state: UiState, handlers: UiHandlers): void {
+  const sig = stateSignature(state);
+  if (root.getAttribute(SIG_ATTR) === sig && root.childElementCount > 0) {
+    return;
+  }
+
   root.replaceChildren();
   root.dataset.state = state.kind;
+  root.setAttribute(SIG_ATTR, sig);
 
   if (state.kind === 'setup') {
     root.append(
@@ -71,7 +90,7 @@ export function renderUi(
   }
 
   if (state.kind === 'queued') {
-    const card = statusCard('Na fila…', true);
+    const card = statusCard('Na fila…');
     card.append(
       iconButton({
         title: 'Cancelar',
@@ -84,7 +103,7 @@ export function renderUi(
   }
 
   if (state.kind === 'transcribing') {
-    const card = statusCard('Transcrevendo…', true);
+    const card = statusCard('Transcrevendo…');
     const spin = document.createElement('span');
     spin.className = 'wt-spinner';
     spin.setAttribute('aria-hidden', 'true');
@@ -141,14 +160,13 @@ export function renderUi(
   }
 }
 
-function statusCard(message: string, withSpinnerSlot = false): HTMLElement {
+function statusCard(message: string): HTMLElement {
   const card = document.createElement('div');
   card.className = 'wt-card wt-card-status';
   const label = document.createElement('span');
   label.className = 'wt-card-status-label';
   label.textContent = message;
   card.append(label);
-  void withSpinnerSlot;
   return card;
 }
 
@@ -183,15 +201,22 @@ function iconButton(opts: {
 }
 
 function bindClick(el: HTMLElement, onClick: () => void): void {
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    onClick();
+  });
+  // Swallow click so WhatsApp doesn't also handle it / so we don't double-fire
   el.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    onClick();
+    e.stopImmediatePropagation();
   });
 }
 
 const icons = {
-  /** Document + sound waves — matches mockup trigger */
   transcribe: `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="#53bdeb" d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm7 1.5V9h4.5L14 4.5z"/><path fill="none" stroke="#53bdeb" stroke-width="1.6" stroke-linecap="round" d="M9.2 13.2v3.2M11.4 12v5.6M13.6 13.5v2.6"/></svg>`,
   copy: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="5" y="5" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>`,
   refresh: `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M20 12a8 8 0 1 1-2.3-5.6"/><path fill="currentColor" d="M20 4v5h-5l5-5z"/></svg>`,
@@ -215,6 +240,9 @@ export function injectStyles(): void {
       flex-direction: column;
       align-items: flex-start;
       gap: 6px;
+      position: relative;
+      z-index: 2;
+      pointer-events: auto;
     }
     .wt-fab {
       appearance: none;
@@ -229,13 +257,18 @@ export function injectStyles(): void {
       justify-content: center;
       cursor: pointer;
       padding: 0;
-      transition: transform 0.12s ease, box-shadow 0.12s ease;
+      /* No transform on hover — it moves the hit target and causes flicker/missed clicks */
+      transition: box-shadow 0.12s ease, background-color 0.12s ease;
+      pointer-events: auto;
+      touch-action: manipulation;
     }
     .wt-fab:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 3px 8px rgba(11, 20, 26, 0.2), 0 0 0 1px rgba(0,0,0,0.05);
+      box-shadow: 0 2px 6px rgba(11, 20, 26, 0.2), 0 0 0 1px rgba(0,0,0,0.06);
+      background: #f7f8fa;
     }
-    .wt-fab:active { transform: translateY(0); }
+    .wt-fab:active {
+      background: #eef0f2;
+    }
     .wt-card {
       background: #f0f2f5;
       border-radius: 10px;
@@ -243,9 +276,6 @@ export function injectStyles(): void {
       width: 100%;
       box-sizing: border-box;
       position: relative;
-    }
-    .wt-card-done {
-      background: #f0f2f5;
     }
     .wt-card-status {
       display: flex;
@@ -281,6 +311,8 @@ export function injectStyles(): void {
       justify-content: center;
       cursor: pointer;
       padding: 0;
+      pointer-events: auto;
+      touch-action: manipulation;
     }
     .wt-icon-btn:hover {
       background: rgba(11, 20, 26, 0.06);
