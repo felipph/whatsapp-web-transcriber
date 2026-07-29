@@ -38,28 +38,11 @@ export function findMessageId(el: Element): string | null {
   return id && id.length > 0 ? id : null;
 }
 
-/**
- * WhatsApp may keep a shared <audio> outside the bubble. Prefer in-bubble, then
- * any playing/document audio that looks related.
- */
+/** Only audio inside this message — never the shared document player. */
 export function findAudioElement(bubble: Element): HTMLAudioElement | null {
-  const inBubble = bubble.querySelector('audio');
-  if (inBubble instanceof HTMLAudioElement) return inBubble;
-
-  const inRow = bubble.closest('[data-id]')?.querySelector('audio');
-  if (inRow instanceof HTMLAudioElement) return inRow;
-
-  const all = Array.from(document.querySelectorAll('audio'));
-  const playing = all.find((a) => !a.paused && !a.ended);
-  if (playing) return playing;
-
-  // Last audio that has a real src
-  for (let i = all.length - 1; i >= 0; i--) {
-    const a = all[i]!;
-    if (a.src || a.currentSrc) return a;
-  }
-
-  return null;
+  const root = bubble.closest('[data-id]') ?? bubble;
+  const inBubble = root.querySelector('audio');
+  return inBubble instanceof HTMLAudioElement ? inBubble : null;
 }
 
 export function looksLikeVoiceNote(el: Element): boolean {
@@ -70,7 +53,6 @@ export function looksLikeVoiceNote(el: Element): boolean {
   if (el.querySelector('button[aria-label*="velocidade" i], button[aria-label*="speed" i]')) {
     return true;
   }
-  // Waveform / 1.0x control (matches current WA voice UI)
   if (/\b\d+[.,]\d+x\b/.test(el.textContent || '')) {
     const hasTime = /\d+:\d{2}/.test(el.textContent || '');
     if (hasTime) return true;

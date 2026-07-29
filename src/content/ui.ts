@@ -50,7 +50,7 @@ export function renderUi(
   }
 
   if (state.kind === 'unavailable') {
-    row.append(label('Toque ▶ no áudio e depois em Tentar'));
+    row.append(label('Dê play neste áudio e tente de novo'));
     row.append(button('Tentar', handlers.onTranscribe));
     root.append(row);
     return;

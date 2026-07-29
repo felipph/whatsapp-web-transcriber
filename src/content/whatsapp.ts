@@ -1,4 +1,10 @@
-import { listenMainWorldBlobs, resolveAudioBlob } from './audio';
+import {
+  listenMainWorldBlobs,
+  resolveAudioBlobForMessage,
+  setPendingMessageId,
+  clickPlayInBubble,
+  getBlobForMessage,
+} from './audio';
 import { blobToBase64 } from '../stt/audio-decode';
 import {
   findAudioElement,
@@ -19,6 +25,22 @@ const states = new Map<string, UiState>();
 const seenForAuto = new Set<string>();
 let config: ExtensionConfig | null = null;
 let missCount = 0;
+
+// When the user plays a voice note, mark that message as pending so the next
+// captured blob is bound to the correct data-id.
+document.addEventListener(
+  'click',
+  (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest('.wt-root')) return;
+    const bubble = t.closest('[data-id]');
+    if (!bubble || !looksLikeVoiceNote(bubble)) return;
+    const id = findMessageId(bubble);
+    if (id) setPendingMessageId(id);
+  },
+  true,
+);
 
 void getConfig().then((c) => {
   config = c;
@@ -60,6 +82,29 @@ async function requestTranscript(messageId: string): Promise<string | null> {
   }
 }
 
+let obtainChain: Promise<unknown> = Promise.resolve();
+
+async function obtainBlobForMessage(messageId: string, bubble: Element): Promise<Blob | null> {
+  const run = async (): Promise<Blob | null> => {
+    const existing = getBlobForMessage(messageId);
+    if (existing) return existing;
+
+    setPendingMessageId(messageId);
+    clickPlayInBubble(bubble);
+
+    const audio = findAudioElement(bubble);
+    return resolveAudioBlobForMessage(messageId, audio, { retries: 12, delayMs: 400 });
+  };
+
+  // Serialize capture so pendingMessageId is never shared across messages
+  const next = obtainChain.then(run, run);
+  obtainChain = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
 async function enqueue(messageId: string, bubble: Element, priority: JobPriority): Promise<void> {
   if (!config || config.modelStatus !== 'ready') {
     setState(messageId, { kind: 'setup' });
@@ -70,22 +115,17 @@ async function enqueue(messageId: string, bubble: Element, priority: JobPriority
   setState(messageId, { kind: 'queued' });
   refreshMessageUi(messageId);
 
-  const audio = findAudioElement(bubble);
-  const blob = await resolveAudioBlob(audio, { retries: 8, delayMs: 400 });
+  const blob = await obtainBlobForMessage(messageId, bubble);
   if (!blob) {
     missCount += 1;
-    console.warn('[wt] audio blob missing', {
-      messageId,
-      missCount,
-      hasAudioEl: Boolean(audio),
-      src: audio?.currentSrc || audio?.src || null,
-    });
+    console.warn('[wt] audio blob missing for message', messageId, { missCount });
     setState(messageId, { kind: 'unavailable' });
     refreshMessageUi(messageId);
     return;
   }
 
   try {
+    const audio = findAudioElement(bubble);
     const audioBase64 = await blobToBase64(blob);
     await chrome.runtime.sendMessage({
       type: 'TRANSCRIBE_REQUEST',
