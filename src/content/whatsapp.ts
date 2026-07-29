@@ -26,7 +26,6 @@ injectStyles();
 
 const states = new Map<string, UiState>();
 const seenForAuto = new Set<string>();
-const knownIds = new Set<string>();
 let config: ExtensionConfig | null = null;
 let missCount = 0;
 let activeChatKey = '';
@@ -218,18 +217,33 @@ function refreshMessageUi(messageId: string): void {
   renderUi(root, state, handlersFor(messageId, bubble));
 }
 
-async function attachToBubble(bubble: Element): Promise<void> {
+async function attachToBubble(
+  bubble: Element,
+  opts?: { forceHydrate?: boolean },
+): Promise<void> {
   if (!looksLikeVoiceNote(bubble)) return;
   const messageId = findMessageId(bubble);
   if (!messageId) return;
 
+  const uiMissing = !bubble.querySelector(`[data-wt-root="${CSS.escape(messageId)}"]`);
   let state = states.get(messageId);
-  if (!state) {
+
+  // WA virtualizes/rebuilds bubbles when switching chats — re-read IndexedDB and re-inject UI
+  const shouldHydrate =
+    opts?.forceHydrate ||
+    !state ||
+    (uiMissing && state.kind !== 'queued' && state.kind !== 'transcribing');
+
+  if (shouldHydrate) {
     if (!config || config.modelStatus !== 'ready') {
-      state = { kind: 'setup' };
+      state = state ?? { kind: 'setup' };
     } else {
       const cached = await requestTranscript(messageId);
-      state = cached ? { kind: 'done', text: cached } : { kind: 'idle' };
+      if (cached) {
+        state = { kind: 'done', text: cached };
+      } else if (!state || state.kind === 'done') {
+        state = { kind: 'idle' };
+      }
     }
     setState(messageId, state);
   }
@@ -238,11 +252,11 @@ async function attachToBubble(bubble: Element): Promise<void> {
   renderUi(root, states.get(messageId)!, handlersFor(messageId, bubble));
 }
 
-function scanUiOnly(): void {
+function scanUiOnly(opts?: { forceHydrate?: boolean }): void {
   const main = queryFirst(document, MAIN_PANE) ?? document.body;
   const candidates = queryAll(main, ['[data-id]']);
   for (const el of candidates) {
-    void attachToBubble(el);
+    void attachToBubble(el, opts);
   }
 }
 
@@ -266,7 +280,6 @@ function listVoiceNotesNewestFirst(): { id: string; el: Element }[] {
     const id = findMessageId(el);
     if (id) items.push({ id, el });
   }
-  // DOM is older→newer top→bottom; reverse for bottom→top processing
   return items.reverse();
 }
 
@@ -276,10 +289,9 @@ async function autoTranscribeLatest(): Promise<void> {
   const latest = listVoiceNotesNewestFirst().slice(0, AUTO_LIMIT);
   for (const { id, el } of latest) {
     if (seenForAuto.has(id)) continue;
-    await attachToBubble(el);
+    await attachToBubble(el, { forceHydrate: true });
     if (states.get(id)?.kind !== 'idle') continue;
     seenForAuto.add(id);
-    // No autoplay — only works if media bytes are already available
     await enqueue(id, el, 'auto', { allowPlay: false });
   }
 }
@@ -287,14 +299,13 @@ async function autoTranscribeLatest(): Promise<void> {
 let uiDebounce: ReturnType<typeof setTimeout> | null = null;
 let autoDebounce: ReturnType<typeof setTimeout> | null = null;
 
-function scheduleUiScan(): void {
+function scheduleUiScan(delayMs = 200, forceHydrate = false): void {
   if (uiDebounce) clearTimeout(uiDebounce);
-  uiDebounce = setTimeout(() => scanUiOnly(), 200);
+  uiDebounce = setTimeout(() => scanUiOnly({ forceHydrate }), delayMs);
 }
 
 function scheduleAutoLatest(): void {
   if (autoDebounce) clearTimeout(autoDebounce);
-  // Wait for WhatsApp to finish painting the conversation
   autoDebounce = setTimeout(() => {
     const key = getChatKey();
     if (key !== activeChatKey) {
@@ -306,39 +317,30 @@ function scheduleAutoLatest(): void {
 }
 
 function observe(): void {
-  const main = queryFirst(document, MAIN_PANE);
-  const target = main ?? document.body;
-
-  queryAll(target, ['[data-id]']).forEach((el) => {
-    const id = findMessageId(el);
-    if (id) knownIds.add(id);
-  });
-  scanUiOnly();
+  // Observe body: WhatsApp often replaces #main when switching chats, which
+  // would kill an observer attached only to the old #main node.
+  scanUiOnly({ forceHydrate: true });
   scheduleAutoLatest();
 
-  const observer = new MutationObserver((mutations) => {
-    let sawStructuralChange = false;
-    for (const m of mutations) {
-      m.addedNodes.forEach((node) => {
-        if (!(node instanceof Element)) return;
-        const nodes = node.matches?.('[data-id]')
-          ? [node]
-          : Array.from(node.querySelectorAll?.('[data-id]') ?? []);
-        for (const el of nodes) {
-          const id = findMessageId(el);
-          if (id && !knownIds.has(id)) {
-            knownIds.add(id);
-            sawStructuralChange = true;
-          }
-          void attachToBubble(el);
-        }
-      });
+  let lastChatKey = getChatKey();
+  activeChatKey = lastChatKey;
+
+  const observer = new MutationObserver(() => {
+    const key = getChatKey();
+    const chatChanged = key !== lastChatKey;
+    if (chatChanged) {
+      lastChatKey = key;
+      activeChatKey = key;
+      seenForAuto.clear();
+      // Wait for the conversation pane to paint, then re-hydrate from IndexedDB
+      scheduleUiScan(500, true);
+      scheduleAutoLatest();
+      return;
     }
-    scheduleUiScan();
-    if (sawStructuralChange) scheduleAutoLatest();
+    scheduleUiScan(200, false);
   });
 
-  observer.observe(target, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
 const boot = setInterval(() => {

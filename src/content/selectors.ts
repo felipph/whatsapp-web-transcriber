@@ -50,12 +50,25 @@ export function looksLikeVoiceNote(el: Element): boolean {
   if (el.querySelector('[data-testid="audio-play"]')) return true;
   if (el.querySelector('span[data-testid="audio-duration"]')) return true;
   if (el.querySelector('[data-testid="ptt"]')) return true;
+  // Mic badge on avatar (incoming/outgoing voice notes)
+  if (
+    el.querySelector(
+      'span[data-icon="ptt-out-blue"], span[data-icon="ptt-in-blue"], span[data-icon*="ptt"], [data-testid="ptt-status"]',
+    )
+  ) {
+    return true;
+  }
   if (el.querySelector('button[aria-label*="velocidade" i], button[aria-label*="speed" i]')) {
     return true;
   }
-  if (/\b\d+[.,]\d+x\b/.test(el.textContent || '')) {
-    const hasTime = /\d+:\d{2}/.test(el.textContent || '');
-    if (hasTime) return true;
+  const text = el.textContent || '';
+  if (/\b\d+[.,]\d+x\b/.test(text) && /\d+:\d{2}/.test(text)) return true;
+  // Waveform scrubber often shows current time + message meta time without 1.0x yet
+  if (
+    el.querySelector('[role="slider"], input[type="range"]') &&
+    /\d+:\d{2}/.test(text)
+  ) {
+    return true;
   }
   if (el.querySelector('[aria-label*="Mensagem de voz" i], [aria-label*="Voice message" i]')) {
     return true;
