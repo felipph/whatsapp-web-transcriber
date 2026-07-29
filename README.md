@@ -98,6 +98,3 @@ npm run build    # typecheck + build em dist/
 - [Runbook](docs/guias/runbook.md) — operação e incidentes
 - [Plano de produto](docs/plano-whatsapp-web-transcriber.md) — spec original
 
-## Responsáveis
-
-- **Felipph Calado** — luiz.calado@mpc.pa.gov.br
