@@ -2,7 +2,7 @@ import {
   listenMainWorldBlobs,
   resolveAudioBlobForMessage,
   setPendingMessageId,
-  clickPlayInBubble,
+  silentPrimeBubble,
   getBlobForMessage,
 } from './audio';
 import { blobToBase64 } from '../stt/audio-decode';
@@ -100,17 +100,25 @@ async function obtainBlobForMessage(
     if (existing) return existing;
 
     setPendingMessageId(messageId);
-    if (opts.allowPlay) {
-      clickPlayInBubble(bubble);
-    }
 
-    const audio = findAudioElement(bubble);
-    // Without play, only a few short retries — media may already be in DOM
-    const retries = opts.allowPlay ? 12 : 3;
-    return resolveAudioBlobForMessage(messageId, audio, {
-      retries,
-      delayMs: opts.allowPlay ? 400 : 200,
+    // Silent path first: wait for createObjectURL / network hooks / existing blob:
+    let blob = await resolveAudioBlobForMessage(messageId, findAudioElement(bubble), {
+      retries: opts.allowPlay ? 4 : 6,
+      delayMs: 250,
+      claimUnclaimed: !opts.allowPlay,
     });
+    if (blob) return blob;
+
+    if (!opts.allowPlay) return null;
+
+    // Manual fallback: prime media muted (no audible playback)
+    await silentPrimeBubble(bubble);
+    blob = await resolveAudioBlobForMessage(messageId, findAudioElement(bubble), {
+      retries: 12,
+      delayMs: 350,
+      claimUnclaimed: false,
+    });
+    return blob;
   };
 
   const next = obtainChain.then(run, run);
@@ -185,6 +193,14 @@ function handlersFor(messageId: string, bubble: Element) {
     onRetranscribe: () => {
       void chrome.runtime.sendMessage({ type: 'DELETE_TRANSCRIPT', messageId }).then(() => {
         void enqueue(messageId, bubble, 'manual', { allowPlay: true });
+      });
+    },
+    onCopy: () => {
+      const state = states.get(messageId);
+      const text = state?.kind === 'done' ? state.text : '';
+      if (!text) return;
+      void navigator.clipboard.writeText(text).catch(() => {
+        /* ignore */
       });
     },
     onOpenSetup: () => {
