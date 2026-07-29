@@ -67,24 +67,23 @@ async function enqueue(messageId: string, bubble: Element, priority: JobPriority
     return;
   }
 
-  const audio = findAudioElement(bubble);
-  if (!audio) {
-    missCount += 1;
-    setState(messageId, { kind: 'unavailable' });
-    refreshMessageUi(messageId);
-    return;
-  }
-
-  const blob = await resolveAudioBlob(audio);
-  if (!blob) {
-    missCount += 1;
-    setState(messageId, { kind: 'unavailable' });
-    refreshMessageUi(messageId);
-    return;
-  }
-
   setState(messageId, { kind: 'queued' });
   refreshMessageUi(messageId);
+
+  const audio = findAudioElement(bubble);
+  const blob = await resolveAudioBlob(audio, { retries: 8, delayMs: 400 });
+  if (!blob) {
+    missCount += 1;
+    console.warn('[wt] audio blob missing', {
+      messageId,
+      missCount,
+      hasAudioEl: Boolean(audio),
+      src: audio?.currentSrc || audio?.src || null,
+    });
+    setState(messageId, { kind: 'unavailable' });
+    refreshMessageUi(messageId);
+    return;
+  }
 
   try {
     const audioBase64 = await blobToBase64(blob);
@@ -94,7 +93,7 @@ async function enqueue(messageId: string, bubble: Element, priority: JobPriority
       priority,
       audioBase64,
       mimeType: blob.type || 'audio/ogg',
-      durationSec: Number.isFinite(audio.duration) ? audio.duration : undefined,
+      durationSec: audio && Number.isFinite(audio.duration) ? audio.duration : undefined,
     });
   } catch (err) {
     setState(messageId, {
