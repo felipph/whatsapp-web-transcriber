@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>WhatsApp Transcriber</title>
+    <link rel="stylesheet" href="../shared/ui.css" />
+  </head>
+  <body class="popup-page">
+    <p class="eyebrow" style="margin:0 0 4px">WhatsApp Transcriber</p>
+    <p id="status" class="status" style="margin:0 0 10px"></p>
+    <label class="row" style="margin:0 0 12px">
+      <span>Novos áudios auto</span>
+      <input id="auto" type="checkbox" />
+    </label>
+    <div class="stack" style="margin:0">
+      <button id="open-wa" type="button" class="btn primary">Abrir WhatsApp Web</button>
+      <button id="open-setup" type="button" class="btn secondary">Setup do modelo</button>
+      <button id="open-options" type="button" class="btn secondary">Opções</button>
+    </div>
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>

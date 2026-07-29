@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Opções — WhatsApp Transcriber</title>
+    <link rel="stylesheet" href="../shared/ui.css" />
+  </head>
+  <body class="page options-page">
+    <main class="card">
+      <p class="eyebrow">Opções</p>
+      <h1>WhatsApp Transcriber</h1>
+      <p class="lede">Modelo, privacidade e armazenamento — tudo local no seu browser.</p>
+
+      <label class="field">
+        <span>Modelo Whisper</span>
+        <select id="model"></select>
+        <small id="model-hint" class="hint"></small>
+      </label>
+
+      <label class="row">
+        <span>Transcrever novos áudios automaticamente</span>
+        <input id="auto" type="checkbox" />
+      </label>
+
+      <p id="status" class="status" role="status"></p>
+      <p id="storage" class="hint"></p>
+      <p id="error" class="error hidden" role="alert"></p>
+
+      <div class="stack">
+        <button id="apply-model" type="button" class="btn primary">Baixar / trocar modelo</button>
+        <button id="clear-transcripts" type="button" class="btn secondary">
+          Apagar transcrições salvas
+        </button>
+        <button id="clear-model" type="button" class="btn danger">Apagar modelo baixado</button>
+        <button id="open-setup" type="button" class="btn secondary">Abrir setup</button>
+      </div>
+    </main>
+    <script type="module" src="./options.ts"></script>
+  </body>
+</html>

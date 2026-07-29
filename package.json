@@ -1,0 +1,21 @@
+{
+  "name": "whatsapp-transcriber",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "prebuild": "mkdir -p public/ort && cp node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.wasm public/ort/ && cp node_modules/@huggingface/transformers/dist/ort-wasm-simd-threaded.jsep.mjs public/ort/",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.5.1"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0",
+    "@types/chrome": "^0.0.326",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}

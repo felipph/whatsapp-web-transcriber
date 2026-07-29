@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Configurar — WhatsApp Transcriber</title>
+    <link rel="stylesheet" href="../shared/ui.css" />
+  </head>
+  <body class="page setup-page">
+    <main class="card">
+      <p class="eyebrow">WhatsApp Web Transcriber</p>
+      <h1>Transcreva áudios no seu PC</h1>
+      <p class="lede">
+        Nada de áudio sai do browser. O modelo Whisper roda localmente — só o download inicial
+        usa a internet.
+      </p>
+
+      <label class="field">
+        <span>Modelo Whisper</span>
+        <select id="model"></select>
+        <small id="model-hint" class="hint"></small>
+      </label>
+
+      <div id="progress-wrap" class="progress-wrap hidden">
+        <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+        <p id="progress-label" class="hint">Baixando…</p>
+      </div>
+
+      <p id="status" class="status" role="status"></p>
+      <p id="error" class="error hidden" role="alert"></p>
+
+      <div class="actions">
+        <button id="download" type="button" class="btn primary">Baixar e preparar</button>
+        <a
+          id="open-wa"
+          class="btn secondary hidden"
+          href="https://web.whatsapp.com"
+          target="_blank"
+          rel="noreferrer"
+          >Abrir WhatsApp Web</a
+        >
+      </div>
+    </main>
+    <script type="module" src="./setup.ts"></script>
+  </body>
+</html>
