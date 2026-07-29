@@ -71,6 +71,20 @@ async function updateBadge(status: 'ready' | 'error' | 'loading' | 'idle'): Prom
   }
 }
 
+async function broadcastToWhatsAppTabs(event: RuntimeEvent): Promise<void> {
+  const tabs = await chrome.tabs.query({ url: ['https://web.whatsapp.com/*'] });
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (tab.id == null) return;
+      try {
+        await chrome.tabs.sendMessage(tab.id, event);
+      } catch {
+        /* tab without content script yet */
+      }
+    }),
+  );
+}
+
 /** Persist model lifecycle events from offscreen (which cannot use chrome.storage). */
 async function handleOffscreenEvent(msg: RuntimeEvent): Promise<void> {
   if (msg.type === 'PROGRESS') {
@@ -137,7 +151,13 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     return false;
   }
 
-  if (msg.type === 'JOB_STATUS' || msg.type === 'OFFSCREEN_ALIVE') {
+  // Content scripts do not receive chrome.runtime.sendMessage — relay via tabs API
+  if (msg.type === 'JOB_STATUS') {
+    void broadcastToWhatsAppTabs(msg as RuntimeEvent);
+    return false;
+  }
+
+  if (msg.type === 'OFFSCREEN_ALIVE') {
     return false;
   }
 
