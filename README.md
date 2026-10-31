@@ -58,8 +58,10 @@ Extensão Chrome (Manifest V3) para `web.whatsapp.com` que transforma áudios (P
 ```bash
 git clone <repo-url>
 cd whatsapp-transcriber
-npm install
+SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm install
 ```
+
+Se o sistema tiver libvips instalado (`pkg-config --modversion vips-cpp`, comum no Omarchy/Arch), o `sharp` tenta compilar do fonte e o `npm install` morre com `Please add node-addon-api to your dependencies`. A variável acima faz o `sharp` usar o binário pré-compilado. Sem ela, o `node_modules` fica incompleto e o `npm run build` não acha o WASM do ONNX Runtime.
 
 2. Build de produção (também copia assets ORT para `public/ort/`):
 

@@ -9,10 +9,10 @@ All docs and user-facing UI strings in **PT-BR**. Code identifiers in English. F
 ## Commands
 
 ```bash
-npm install          # Dependências
-npm run dev          # Vite/CRXJS em watch
-npm run build        # tsc --noEmit + vite build (prebuild copia ORT WASM)
-npx tsc --noEmit     # Typecheck isolado
+SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm install   # Dependências (binário do sharp)
+npm run dev                                 # Vite/CRXJS em watch
+npm run build                               # tsc --noEmit + vite build (prebuild copia ORT WASM)
+npx tsc --noEmit                            # Typecheck isolado
 ```
 
 Não há lint/format/test scripts no `package.json` ainda.
@@ -41,6 +41,7 @@ manifest.config.ts
 
 ## Gotchas
 
+- **libvips do sistema:** `sharp` (dep de `@huggingface/transformers`) vê `vips-cpp` via `pkg-config` e tenta compilar do fonte; o install morre com `Please add node-addon-api`. `SHARP_IGNORE_GLOBAL_LIBVIPS=1` usa o binário pronto. Comum no Omarchy/Arch.
 - **CSP WASM:** `script-src 'self' 'wasm-unsafe-eval'` em `manifest.config.ts` é obrigatório.
 - **Sem COOP/COEP:** cross-origin isolation faz ORT spawnar `blob:` workers → bloqueados. Use `numThreads: 1` + `wasmPaths` locais em `public/ort/`.
 - **SW morre ~30s idle:** a fila vive no **offscreen**, não no service worker.
