@@ -28,7 +28,7 @@ flowchart LR
 
 **Offscreen** (`src/offscreen/`) — componente persistente: fila (`stt/queue.ts`), decode (`stt/audio-decode.ts`), host do worker. Não usa `chrome.storage` (indisponível nesse contexto); emite eventos `PROGRESS` / `READY` / `JOB_STATUS` para o SW.
 
-**Whisper worker** (`src/stt/whisper-worker.ts`) — Transformers.js pipeline, `device: 'webgpu'` com fallback `'wasm'`, `dtype: 'q8'`, `language: 'pt'`.
+**Whisper worker** (`src/stt/whisper-worker.ts`) — Transformers.js pipeline, `device: 'wasm'` (q8 no WebGPU alucina em loop; ver transformers.js#1317), `dtype: 'q8'`, `language: 'pt'`.
 
 **Content MAIN** (`src/content/main-world.ts`) — hooks em `URL.createObjectURL`, `fetch` e XHR; filtra candidatos a áudio (magic bytes / MIME) e posta `AUDIO_BLOB` para o isolated world.
 

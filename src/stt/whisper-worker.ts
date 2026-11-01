@@ -41,17 +41,6 @@ function post(msg: WorkerOut): void {
   self.postMessage(msg);
 }
 
-async function detectWebGpu(): Promise<boolean> {
-  try {
-    if (!('gpu' in navigator)) return false;
-    // @ts-expect-error navigator.gpu typing varies by TS lib
-    const adapter = await navigator.gpu.requestAdapter();
-    return Boolean(adapter);
-  } catch {
-    return false;
-  }
-}
-
 function humanError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   if (/CSP|Content Security Policy|blob:/i.test(raw)) {
@@ -71,8 +60,11 @@ async function loadModel(modelId: string, dtype: 'q8', requestId: string): Promi
     env.backends.onnx.wasm.wasmPaths = `${self.location.origin}/ort/`;
   }
 
-  const preferGpu = await detectWebGpu();
-  const devices: Array<'webgpu' | 'wasm'> = preferGpu ? ['webgpu', 'wasm'] : ['wasm'];
+  // q8 Whisper on WebGPU returns a repetition loop (gibberish) instead of throwing.
+  // ORT still logs "nodes were not assigned to the preferred execution provider"
+  // because the WebGPU EP leaves shape ops on CPU. The same q8 weights are correct on WASM.
+  // https://github.com/huggingface/transformers.js/issues/1317
+  const devices: Array<'wasm'> = ['wasm'];
 
   let lastError: unknown;
   for (const device of devices) {

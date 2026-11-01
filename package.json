@@ -17,5 +17,12 @@
     "@types/chrome": "^0.0.326",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "fsevents@2.3.3": true,
+    "onnxruntime-node": true,
+    "protobufjs": true,
+    "sharp": true
   }
 }
